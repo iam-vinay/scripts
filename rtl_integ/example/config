@@ -1,0 +1,18 @@
+top top
+clk
+rstn
+endtop
+
+module sample1 u_sample1
+sigi(.*) sam2_to_sam1_$1 
+sigo(.*) sam1_to_sam2_$1 
+endmodule
+
+module sample2 u_sample2
+sigo(.*) sam2_to_sam1_$1 
+sigi(.*) sam1_to_sam2_$1 
+endmodule
+
+module sample3 u_sample3
+
+endmodule
