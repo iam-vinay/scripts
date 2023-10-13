@@ -11,21 +11,28 @@
 use strict;
 use warnings;
 use Getopt::Long;
+use File::Find;
 
 # Options - replace with getOpt
-my $pre     = "";
-my $post    = "";
-my $wrapLen = 80;
-my $debug   = undef;
-my $gentb   = undef;
-my $fname   = undef;
+my $pre           = "";
+my $post          = "";
+my $wrapLen       = 10;
+my $debug         = undef;
+my $gentb         = undef;
+my $instGen       = undef;
+my $paramList     = undef;
+my $fname         = undef;
+my $autoInp       = 1;
 
-GetOptions ("pre=s"    => \$pre,
-            "post=s"   => \$post,
-            "wlen=i"   => \$wrapLen,
-            "f=s"      => \$fname,
-            "gentb"    => \$gentb,
-            "d"        => \$debug)
+GetOptions ("pre=s"          => \$pre,
+            "post=s"         => \$post,
+            "wlen=i"         => \$wrapLen,
+            "f=s"            => \$fname,
+            "gentb"          => \$gentb,
+            "instGen"        => \$instGen,
+            "paramList"      => \$paramList,
+            "d"              => \$debug,
+            "autoinp"        => \$autoInp)
 or die("Error in command line arguments\n");
 
 # System verilog file to read
@@ -79,6 +86,7 @@ my $type;
 local $/=");";
 my $line = <$fw>;
 chomp $line;
+$line =~ s/\/\*(?:(?!\*\/).)*\*\/\n?//sg;
 $line =~ /^.*?module[\s\n\r]*(?<modName>\w+)[\s\n\r]*(?:#\((?<refParamName>.*?)\)[\s\n\r]*)?\((?<refPortName>.*)/smg;
 
 # Module name
@@ -91,6 +99,20 @@ $inst = "$moduleName ";
 ###############################################################################
 if (defined($+{refParamName})){
   print "CAP:: refParamName = $+{refParamName} \n" if (defined($debug));
+  if(defined($paramList)) {
+    my $paramList = $+{refParamName};
+    my @paramListArr = split /,/,$paramList;
+    foreach my $pline (@paramListArr) {
+      chomp $pline;
+      $pline =~ s/[\n\r]//g;
+      next if ($pline =~ m/^\s*$/);
+      next if ($pline =~ m/^\s*\/\//);
+      next if ($pline =~ m/^(parameter)/);
+      $pline =~ s/^(\s*parameter\s+int\s+)(\w+\s*=.*)/$1 unsigned $2/;
+      print "$pline,\n";
+    }
+    exit;
+  }
   $inst .= "#( \n  ";
   @paramArray = split /parameter\s*/,$+{refParamName};
   foreach my $param (@paramArray) {
@@ -100,10 +122,10 @@ if (defined($+{refParamName})){
       my $param_len_temp = length($param);
       if($param_len + $param_len_temp > $wrapLen) {
         $param_len = $param_len_temp;
-        $inst .= "\n  .$+{pname}($+{pname}),";
+        $inst .= "\n  .$+{pname} ($+{pname}),";
       } else {
         $param_len += $param_len_temp;
-        $inst .= ".$+{pname}($+{pname}), ";
+        $inst .= ".$+{pname} ($+{pname}), ";
       }
     }
   }
@@ -115,9 +137,9 @@ if (defined($+{refParamName})){
 ###############################################################################
 print "CAP:: port Name = $+{refPortName} \n" if (defined($debug)); 
 @portArray  = split /,/,$+{refPortName};
-$inst .= "u_$pre$moduleName$post ( \n  ";
+$inst .= "u_$pre$moduleName$post\n  (\n  ";
 foreach my $port (@portArray) {
-  $port =~ s/^\s*(?<dir>(?:\w+))\s+(?<type>(?:\w+))?\s*(?<vec>\[.*?\])?\s*(?<port>\b\w+)\s*(?<arr>\[.*?\])?,?//;
+  $port =~ s/^\s*(?<dir>(?:\w+))\s+(?<type>(?:[\w:]+))?\s*(?<vec>\[.*?\])?\s*(?<port>\b\w+)\s*(?<arr>\[.*?\])?\s*,?//;
   if (defined($debug)) {
     print "\nPORT DES: \n";
     print "DIR  = $+{dir} \n";
@@ -158,7 +180,7 @@ foreach my $port (@portArray) {
   $decl .= ";\n";
 
   # Add ports to instance list
-  my $inst_temp     = ".$+{port}($pre$+{port}$post), ";
+  my $inst_temp     = ".$+{port} ($pre$+{port}$post), ";
   my $inst_temp_len = length($inst_temp);
   if($inst_len + $inst_temp_len > $wrapLen) {
     $inst_len = $inst_temp_len;
@@ -172,22 +194,26 @@ $inst =~ s/,\s*$/);\n/;
 
 $/="\n";
 
-print "\nList of possible clocks:\n @clkList \n";
-print "\nPlease confirm by space separated list: e.g. clk1 clk2\n";
-my $clkListUsr;
-$clkListUsr = <STDIN>;
-@clkList = split /\s/,$clkListUsr;
+if($autoInp == 0) {	
+	print "\nList of possible clocks:\n @clkList \n";
+	print "\nPlease confirm by space separated list: e.g. clk1 clk2\n";
+	my $clkListUsr;
+	$clkListUsr = <STDIN>;
+	@clkList = split /\s/,$clkListUsr;
+}
 for (my $i=0; $i<$#iportList; $i++){
   foreach my $ports (@clkList){
     splice @iportList,$i,1 if ($ports eq $iportList[$i]);
   }
 }
 
-print "\nList of possible resets:\n @rstList \n";
-print "\nPlease confirm by space separated list: e.g.: rst1 rst2\n";
-my $rstListUsr;
-$rstListUsr = <STDIN>;
-@rstList = split /\s/,$rstListUsr;
+if($autoInp == 0) {	
+	print "\nList of possible resets:\n @rstList \n";
+	print "\nPlease confirm by space separated list: e.g.: rst1 rst2\n";
+	my $rstListUsr;
+	$rstListUsr = <STDIN>;
+	@rstList = split /\s/,$rstListUsr;
+}
 for (my $i=0; $i<$#iportList; $i++){
   foreach my $ports (@rstList){
     splice @iportList,$i,1 if ($ports eq $iportList[$i]);
@@ -204,11 +230,15 @@ print "// Instance: \n$inst \n" if (defined($debug));
 close $fh;
 system("rm -rf $fwname") unless (defined($debug));
 
+if (defined ($instGen)) {
+  print "\n$inst\n";
+}
 
 if (defined($gentb)) {
   my $iclkgen  = "";
   my $iclkinit = "";
   my $irstgen  = "";
+  my $irstinit = "";
   $fwname="tb_${moduleName}.sv";
   open $fw,'>',$fwname or die "Cant open file $fname. \n $!";
 
@@ -219,15 +249,18 @@ if (defined($gentb)) {
   # Assign a default clock - need to be modified
   foreach my $line (@clkList){
     $iclkinit .="\t$line = '0;\n";
-    $iclkgen  .="\n\t\tbegin\n";
-    $iclkgen  .="\t\t\tforever\n";
-    $iclkgen  .="\t\t\t\t$line = #5 ~$line;\n";
-    $iclkgen  .="\t\t\tend\n";
+    $iclkgen  .="\n\tbegin\n";
+    $iclkgen  .="\t\tforever\n";
+    $iclkgen  .="\t\t\t$line = #5 ~$line;\n";
+    $iclkgen  .="\tend\n";
   }
   # Assign a default active low reset
   foreach my $line (@rstList){
-    $irstgen .= "\t$line = 1'b0;\n";
-    $irstgen .= "\t$line = #100 1'b1;\n";
+    $irstinit ="\t$line = 1'b0;\n";
+    $irstgen  .="\n\tbegin\n";
+    $irstgen .= "\t\t$line = 1'b0;\n";
+    $irstgen .= "\t\t$line = #100 1'b1;\n";
+    $irstgen  .="\tend\n";
   }
 
   my $tb_str = <<TB_STR;
@@ -235,9 +268,10 @@ if (defined($gentb)) {
 initial
 begin
   $iclkinit
-  $irstgen
+  $irstinit
   fork
     $iclkgen
+    $irstgen
     begin : timeout
       \$display ("Starting simulation");
       #10000000;
@@ -260,4 +294,3 @@ TB_STR
   print {$fw} "endmodule";
   close $fw;
 }
-
